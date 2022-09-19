@@ -1,49 +1,45 @@
 package com.abdi.abdi.controller;
 
 import com.abdi.abdi.entity.Customer;
+import com.abdi.abdi.entity.FrejaUser;
 import com.abdi.abdi.event.LoginCompleEvent;
 import com.abdi.abdi.freja.Freja;
 import com.abdi.abdi.freja.FrejaResponse;
-import com.abdi.abdi.repo.CustomerRepo;
+import com.abdi.abdi.listner.LoginCompleteListner;
 import com.abdi.abdi.service.CustomerService;
-import com.verisec.frejaeid.client.beans.authentication.get.AuthenticationResult;
-import com.verisec.frejaeid.client.beans.authentication.get.AuthenticationResultRequest;
-import com.verisec.frejaeid.client.beans.authentication.init.InitiateAuthenticationRequest;
-import com.verisec.frejaeid.client.beans.general.SslSettings;
-import com.verisec.frejaeid.client.beans.general.SsnUserInfo;
-import com.verisec.frejaeid.client.client.api.AuthenticationClientApi;
-import com.verisec.frejaeid.client.client.impl.AuthenticationClient;
-import com.verisec.frejaeid.client.enums.Country;
-import com.verisec.frejaeid.client.enums.FrejaEnvironment;
-import com.verisec.frejaeid.client.enums.MinRegistrationLevel;
-import com.verisec.frejaeid.client.enums.RegistrationState;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
 import com.verisec.frejaeid.client.exceptions.FrejaEidClientInternalException;
 import com.verisec.frejaeid.client.exceptions.FrejaEidClientPollingException;
 import com.verisec.frejaeid.client.exceptions.FrejaEidException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
-import java.io.File;
-import java.util.Base64;
+import java.util.Date;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 
 @RestController
+@CrossOrigin
 public class CustomerController {
-
+    @Autowired
+    LoginCompleteListner listner;
     @Autowired
     CustomerService customerService;
-
+    @Autowired
+    FrejaUser user;
     @Autowired
     private ApplicationEventPublisher publisher;
 
     @PostMapping("/customer")
+
     public ResponseEntity<Customer> customer(@Valid @RequestBody Customer customer, BindingResult result) {
         if (result.hasErrors()) {
             return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
@@ -64,13 +60,29 @@ public class CustomerController {
         return new ResponseEntity<>(customer, HttpStatus.OK);
     }
 
-    @GetMapping("/freja")
-    public ResponseEntity<String> frejaPlus() throws FrejaEidClientInternalException, FrejaEidException, InterruptedException, FrejaEidClientPollingException {
-        String freja = new Freja().result("198101039413");
-        TimeUnit.SECONDS.sleep(5);
+    @PostMapping("/freja")
+    public ResponseEntity<String> frejaPlus(@RequestBody String user,BindingResult result) throws FrejaEidClientInternalException, FrejaEidException, InterruptedException, FrejaEidClientPollingException {
+       //System.out.println(user);
+        String freja = new Freja().result(user);
+        //TimeUnit.SECONDS.sleep(5);
         String frejaResponse = new FrejaResponse().response(freja);
         publisher.publishEvent(new LoginCompleEvent(frejaResponse));
-        return new ResponseEntity<>(frejaResponse, HttpStatus.BAD_GATEWAY);
+        if(frejaResponse!="APPROVED"){
+            return new ResponseEntity<>(HttpStatus.FORBIDDEN);
+        }else{
+
+            String token = JWT.create()
+                    .withSubject("freja")
+                    .withExpiresAt(new Date(System.currentTimeMillis() + 7200000))
+                    .sign(Algorithm.HMAC512("cRfUjXn2r5u8x/A?D(G+KaPdSgVkYp3s6v9y$B&E)H@McQeThWmZq4t7w!z%C*F-"));
+
+            HttpHeaders headers = new HttpHeaders();
+
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.add("Authorization", "Bearer " + token);
+            return new ResponseEntity<>("Bearer " + token,HttpStatus.OK);
+        }
+
     }
 
     @GetMapping("/freja/{inputData}")
